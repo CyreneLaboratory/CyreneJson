@@ -100,7 +100,7 @@ public class TypeCollector
     {
         CollectPendingTypes(Compilation.GlobalNamespace);
         CollectEntryTypes();
-        CollectDerivedTypes();
+        foreach (var value in EntryTypes.Values) CollectDerivedTypesFor(value, null);
         CollectProperties();
         CollectBaseTypes();
         return this;
@@ -112,6 +112,7 @@ public class TypeCollector
     {
         foreach (var type in ns.GetTypeMembers())
         {
+            if (!TypeSymbolHelper.IsSourceType(type)) continue;
             PendingTypes.Add(type);
             CollectNestedTypes(type);
         }
@@ -122,6 +123,7 @@ public class TypeCollector
     {
         foreach (var nested in type.GetTypeMembers())
         {
+            if (!TypeSymbolHelper.IsSourceType(nested)) continue;
             PendingTypes.Add(nested);
             CollectNestedTypes(nested);
         }
@@ -150,19 +152,6 @@ public class TypeCollector
         }
     }
 
-    private void CollectDerivedTypes()
-    {
-        foreach (var (key, value) in EntryTypes)
-            foreach (var candidate in PendingTypes)
-            {
-                if (SymbolEqualityComparer.Default.Equals(candidate, value)) continue;
-                if (candidate.IsUnboundGenericType || candidate.TypeParameters.Length > 0) continue;
-                if (!TypeSymbolHelper.IsDerivedFrom(candidate, value)) continue;
-
-                AllTypes.TryAdd(TypeSymbolHelper.GetFullyQualifiedName(candidate), candidate);
-            }
-    }
-
     private void CollectProperties()
     {
         var visited = new HashSet<string>();
@@ -179,6 +168,38 @@ public class TypeCollector
                 if (prop.DeclaredAccessibility != Accessibility.Public) continue;
                 CollectPropType(toScan, prop.Type);
             }
+        }
+    }
+
+    private void CollectDerivedTypesFor(INamedTypeSymbol baseType, Queue<INamedTypeSymbol>? toScan)
+    {
+        foreach (var candidate in PendingTypes)
+        {
+            if (SymbolEqualityComparer.Default.Equals(candidate, baseType)) continue;
+            if (candidate.IsUnboundGenericType || candidate.TypeParameters.Length > 0) continue;
+            if (!TypeSymbolHelper.IsDerivedFrom(candidate, baseType)) continue;
+
+            var key = TypeSymbolHelper.GetFullyQualifiedName(candidate);
+            if (AllTypes.TryAdd(key, candidate)) toScan?.Enqueue(candidate);
+        }
+    }
+
+    private void CollectBaseTypesFor(INamedTypeSymbol type, Queue<INamedTypeSymbol> toScan)
+    {
+        var current = type.BaseType;
+        while (current != null)
+        {
+            if (!TypeSymbolHelper.IsSourceType(current)) return;
+            if (current.IsUnboundGenericType || current.TypeParameters.Length > 0) return;
+            if (TypeSymbolHelper.IsPrimitiveOrWellKnown(current)) return;
+
+            var key = TypeSymbolHelper.GetFullyQualifiedName(current);
+            if (AllTypes.TryAdd(key, current)) toScan.Enqueue(current);
+
+            CollectDerivedTypesFor(current, toScan);
+
+            if (TypeSymbolHelper.HasJsonAttribute(current)) return;
+            current = current.BaseType;
         }
     }
 
@@ -228,18 +249,12 @@ public class TypeCollector
             if (named.TypeKind is TypeKind.Class or TypeKind.Struct
                 && named.SpecialType == SpecialType.None && named.TypeParameters.Length == 0)
             {
+                if (!TypeSymbolHelper.IsSourceType(named)) return;
                 var key = TypeSymbolHelper.GetFullyQualifiedName(named);
                 if (AllTypes.TryAdd(key, named)) toScan.Enqueue(named);
 
-                // Derived
-                foreach (var candidate in PendingTypes)
-                {
-                    if (SymbolEqualityComparer.Default.Equals(candidate, named)) continue;
-                    if (candidate.TypeParameters.Length > 0) continue;
-                    if (!TypeSymbolHelper.IsDerivedFrom(candidate, named)) continue;
-
-                    if (AllTypes.TryAdd(TypeSymbolHelper.GetFullyQualifiedName(candidate), candidate)) toScan.Enqueue(candidate);
-                }
+                CollectDerivedTypesFor(named, toScan); // Derived
+                CollectBaseTypesFor(named, toScan); // Base chain
             }
         }
     }
