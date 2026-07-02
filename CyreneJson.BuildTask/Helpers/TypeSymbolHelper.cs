@@ -34,6 +34,11 @@ public static class TypeSymbolHelper
         return type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
     }
 
+    public static bool IsSourceType(INamedTypeSymbol type)
+    {
+        return !type.IsImplicitlyDeclared && type.Locations.Any(l => l.IsInSource);
+    }
+
     public static bool IsDerivedFrom(INamedTypeSymbol candidate, INamedTypeSymbol baseType)
     {
         var current = candidate.BaseType;
