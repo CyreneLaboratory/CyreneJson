@@ -11,6 +11,7 @@ public class TypeCollector
 {
     private CSharpCompilation Compilation { get; }
     private List<CollectionInfo> Collections { get; } = [];
+    public HashSet<string> Errors { get; } = [];
 
     public List<INamedTypeSymbol> PendingTypes { get; } = [];
     public Dictionary<string, INamedTypeSymbol> AllTypes { get; } = [];
@@ -60,12 +61,14 @@ public class TypeCollector
         {
             if (attr is not CyreneHandlerAttribute handler) continue;
 
-            // Except '`'
-            var name = handler.Type.Name;
-            var backtick = name.IndexOf('`');
-            if (backtick >= 0) name = name[..backtick];
+            var key = handler.Type.FullName;
+            if (key == null)
+            {
+                Errors.Add($"Type '{handler.Type}' must have a full name.");
+                continue;
+            }
 
-            Collections.Add(new CollectionInfo(name, handler.Type.GetGenericArguments().Length, handler.Kind));
+            AddCollection(key, handler.Type.GetGenericArguments().Length);
         }
     }
 
@@ -83,15 +86,25 @@ public class TypeCollector
                 foreach (var attr in symbol.GetAttributes())
                 {
                     if (!TypeSymbolHelper.IsHandlerAttribute(attr)) continue;
-                    if (attr.ConstructorArguments.Length < 2) continue;
+                    if (attr.ConstructorArguments.Length < 1) continue;
                     if (attr.ConstructorArguments[0].Value is not INamedTypeSymbol typeSymbol) continue;
-                    if (attr.ConstructorArguments[1].Value is not int kindValue) continue;
 
-                    Collections.Add(new CollectionInfo(
-                        typeSymbol.Name, typeSymbol.IsGenericType ? typeSymbol.TypeParameters.Length : 0, (CollectionKind)kindValue));
+                    AddCollection(TypeSymbolHelper.GetTypeDefinitionKey(typeSymbol),
+                        typeSymbol.IsGenericType ? typeSymbol.TypeParameters.Length : 0);
                 }
             }
         }
+    }
+
+    private void AddCollection(string key, int typeArgs)
+    {
+        if (typeArgs is not (1 or 2))
+        {
+            Errors.Add($"Type '{key}' must have 1 or 2 generic arguments.");
+            return;
+        }
+
+        Collections.Add(new CollectionInfo(key, typeArgs));
     }
 
     #endregion
@@ -146,8 +159,14 @@ public class TypeCollector
                 if (!TypeSymbolHelper.HasJsonAttribute(symbol)) continue;
 
                 var key = TypeSymbolHelper.GetFullyQualifiedName(symbol);
+                if (TypeSymbolHelper.ContainsOpenArgument(symbol))
+                {
+                    Errors.Add($"Entry type '{key}' cannot be an open generic type.");
+                    continue;
+                }
+
                 EntryTypes[key] = symbol;
-                if (!symbol.IsUnboundGenericType && symbol.TypeParameters.Length == 0) AllTypes.TryAdd(key, symbol);
+                AllTypes.TryAdd(key, symbol);
             }
         }
     }
@@ -176,7 +195,7 @@ public class TypeCollector
         foreach (var candidate in PendingTypes)
         {
             if (SymbolEqualityComparer.Default.Equals(candidate, baseType)) continue;
-            if (candidate.IsUnboundGenericType || candidate.TypeParameters.Length > 0) continue;
+            if (TypeSymbolHelper.ContainsOpenArgument(candidate)) continue;
             if (!TypeSymbolHelper.IsDerivedFrom(candidate, baseType)) continue;
 
             var key = TypeSymbolHelper.GetFullyQualifiedName(candidate);
@@ -190,7 +209,7 @@ public class TypeCollector
         while (current != null)
         {
             if (!TypeSymbolHelper.IsSourceType(current)) return;
-            if (current.IsUnboundGenericType || current.TypeParameters.Length > 0) return;
+            if (TypeSymbolHelper.ContainsOpenArgument(current)) return;
             if (TypeSymbolHelper.IsPrimitiveOrWellKnown(current)) return;
 
             var key = TypeSymbolHelper.GetFullyQualifiedName(current);
@@ -226,28 +245,29 @@ public class TypeCollector
             // Collection
             if (named.IsGenericType)
             {
-                var match = Collections.FirstOrDefault(c => c.Name == named.Name && c.TypeArgs == named.TypeArguments.Length);
-                if (match != null)
+                var key = TypeSymbolHelper.GetTypeDefinitionKey(named);
+                var name = TypeSymbolHelper.GetFullyQualifiedName(named);
+                var match = Collections.FirstOrDefault(c => c.Key == key && c.TypeArgs == named.TypeArguments.Length);
+                if (match == null)
                 {
-                    // Self
-                    var collKey = TypeSymbolHelper.GetFullyQualifiedName(named);
-                    if (AllTypes.TryAdd(collKey, named)) toScan.Enqueue(named);
-
-                    // Element
-                    var elements = match.Kind switch
-                    {
-                        CollectionKind.List => [named.TypeArguments[0]],
-                        CollectionKind.Dictionary => named.TypeArguments,
-                        _ => []
-                    };
-                    foreach (var element in elements) CollectPropType(toScan, element);
+                    Errors.Add($"Unsupported generic type '{name}'.");
                     return;
                 }
+
+                AllTypes.TryAdd(name, named);
+                var elements = match.TypeArgs switch
+                {
+                    1 => [named.TypeArguments[0]],
+                    2 => named.TypeArguments,
+                    _ => []
+                };
+                foreach (var element in elements) CollectPropType(toScan, element);
+
+                return;
             }
 
             // Object
-            if (named.TypeKind is TypeKind.Class or TypeKind.Struct
-                && named.SpecialType == SpecialType.None && named.TypeParameters.Length == 0)
+            if (named.TypeKind is TypeKind.Class or TypeKind.Struct && named.SpecialType == SpecialType.None)
             {
                 if (!TypeSymbolHelper.IsSourceType(named)) return;
                 var key = TypeSymbolHelper.GetFullyQualifiedName(named);
@@ -269,7 +289,7 @@ public class TypeCollector
             foreach (var candidate in AllTypes.Values)
             {
                 if (SymbolEqualityComparer.Default.Equals(candidate, type)) continue;
-                if (candidate.TypeParameters.Length != 0) continue;
+                if (TypeSymbolHelper.ContainsOpenArgument(candidate)) continue;
                 if (!TypeSymbolHelper.IsDerivedFrom(candidate, type)) continue;
                 derived.Add(candidate);
             }

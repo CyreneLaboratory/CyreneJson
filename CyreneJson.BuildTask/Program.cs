@@ -27,7 +27,14 @@ public class Program
         var outDir = args[2];
         if (!Directory.Exists(outDir)) Directory.CreateDirectory(outDir);
 
-        new ContextEmitter(new TypeCollector(projectDir, refFile).Collect()).Emit(outDir);
+        var collector = new TypeCollector(projectDir, refFile).Collect();
+        if (collector.Errors.Count > 0)
+        {
+            foreach (var error in collector.Errors) Console.Error.WriteLine($"CyreneJson Error: {error}");
+            return 1;
+        }
+
+        new ContextEmitter(collector).Emit(outDir);
         return 0;
     }
 }

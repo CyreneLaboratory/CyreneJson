@@ -34,6 +34,18 @@ public static class TypeSymbolHelper
         return type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
     }
 
+    public static string GetTypeDefinitionKey(INamedTypeSymbol type)
+    {
+        return GetMetadataName(type.OriginalDefinition);
+    }
+
+    private static string GetMetadataName(INamedTypeSymbol type)
+    {
+        if (type.ContainingType != null) return $"{GetMetadataName(type.ContainingType)}+{type.MetadataName}";
+        if (type.ContainingNamespace is { IsGlobalNamespace: false } ns) return $"{ns.ToDisplayString()}.{type.MetadataName}";
+        return type.MetadataName;
+    }
+
     public static bool IsSourceType(INamedTypeSymbol type)
     {
         return !type.IsImplicitlyDeclared && type.Locations.Any(l => l.IsInSource);
@@ -49,5 +61,13 @@ public static class TypeSymbolHelper
             current = current.BaseType;
         }
         return false;
+    }
+
+    public static bool ContainsOpenArgument(ITypeSymbol type)
+    {
+        if (type.TypeKind == TypeKind.TypeParameter) return true;
+        if (type is IArrayTypeSymbol array) return ContainsOpenArgument(array.ElementType);
+        if (type is not INamedTypeSymbol named) return false;
+        return named.TypeArguments.Any(ContainsOpenArgument);
     }
 }

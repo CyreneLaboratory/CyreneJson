@@ -65,7 +65,7 @@ public class Dog : Animal
 ```csharp
 using CyreneJson.Attributes;
 
-[CyreneHandler(typeof(MyCollection<>), CollectionKind.List)]
+[CyreneHandler(typeof(MyCollection<>))]
 public class MyCollectionHandler;
 ```
 
