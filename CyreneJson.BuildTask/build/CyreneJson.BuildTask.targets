@@ -1,23 +1,27 @@
 ﻿<Project>
   <Target Name="CyreneJsonCollectInputs"
-          DependsOnTargets="ResolveAssemblyReferences">
+          DependsOnTargets="ResolveAssemblyReferences;GenerateGlobalUsings">
     <ItemGroup>
-      <CyreneJsonSource Include="$(MSBuildProjectDirectory)\**\*.cs"
-                        Exclude="$(MSBuildProjectDirectory)\obj\**;$(MSBuildProjectDirectory)\bin\**" />
+      <CyreneJsonSource Include="@(Compile->'%(FullPath)')" />
     </ItemGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)CyreneJson.sources"
+                      Lines="@(CyreneJsonSource)"
+                      Overwrite="true"
+                      WriteOnlyWhenDifferent="true" />
     <WriteLinesToFile File="$(IntermediateOutputPath)CyreneJson.refs"
                       Lines="@(ReferencePath)"
-                      Overwrite="true" />
+                      Overwrite="true"
+                      WriteOnlyWhenDifferent="true" />
   </Target>
 
   <Target Name="CyreneJson"
           BeforeTargets="CoreCompile"
           DependsOnTargets="CyreneJsonCollectInputs"
-          Inputs="@(CyreneJsonSource);$(IntermediateOutputPath)CyreneJson.refs"
+          Inputs="@(CyreneJsonSource);$(IntermediateOutputPath)CyreneJson.sources;$(IntermediateOutputPath)CyreneJson.refs"
           Outputs="$(IntermediateOutputPath)generated\CyreneJson\.stamp"
           Condition="'$(DesignTimeBuild)' != 'true'">
     <RemoveDir Directories="$(IntermediateOutputPath)generated\CyreneJson" />
-    <Exec Command="dotnet exec &quot;$(MSBuildThisFileDirectory)..\tools\net8.0\CyreneJson.BuildTask.dll&quot; &quot;$(MSBuildProjectDirectory)&quot; &quot;$(IntermediateOutputPath)CyreneJson.refs&quot; &quot;$(IntermediateOutputPath)generated\CyreneJson&quot;" />
+    <Exec Command="dotnet exec &quot;$(MSBuildThisFileDirectory)..\tools\net8.0\CyreneJson.BuildTask.dll&quot; &quot;$(MSBuildProjectDirectory)&quot; &quot;$(IntermediateOutputPath)CyreneJson.sources&quot; &quot;$(IntermediateOutputPath)CyreneJson.refs&quot; &quot;$(IntermediateOutputPath)generated\CyreneJson&quot;" />
     <Touch Files="$(IntermediateOutputPath)generated\CyreneJson\.stamp" AlwaysCreate="true" />
   </Target>
 

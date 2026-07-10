@@ -18,9 +18,9 @@ public class TypeCollector
     public Dictionary<string, INamedTypeSymbol> EntryTypes { get; } = [];
     public Dictionary<string, PolymorphicInfo> BaseTypes { get; } = [];
 
-    public TypeCollector(string projDir, string refFile)
+    public TypeCollector(string sourceFile, string refFile)
     {
-        Compilation = CSharpCompilation.Create("CyreneJsonAnalysis", LoadSyntaxTrees(projDir),
+        Compilation = CSharpCompilation.Create("CyreneJsonAnalysis", LoadSyntaxTrees(sourceFile),
             LoadReferences(refFile), new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
         LoadBuiltinHandlers();
@@ -29,13 +29,15 @@ public class TypeCollector
 
     #region Env
 
-    private static List<SyntaxTree> LoadSyntaxTrees(string projDir)
+    private static List<SyntaxTree> LoadSyntaxTrees(string sourceFile)
     {
         var syntaxTrees = new List<SyntaxTree>();
-        foreach (var file in Directory.GetFiles(projDir, "*.cs", SearchOption.AllDirectories))
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in File.ReadAllLines(sourceFile))
         {
-            if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") ||
-                file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")) continue;
+            var file = line.Trim();
+            if (string.IsNullOrEmpty(file) || !File.Exists(file)) continue;
+            if (!seen.Add(Path.GetFullPath(file))) continue;
 
             syntaxTrees.Add(CSharpSyntaxTree.ParseText(File.ReadAllText(file), new CSharpParseOptions(LanguageVersion.Preview), path: file));
         }
