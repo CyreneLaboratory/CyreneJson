@@ -28,7 +28,7 @@
   <Target Name="CyreneJsonInclude"
           BeforeTargets="CoreCompile"
           AfterTargets="CyreneJson"
-          Condition="'$(DesignTimeBuild)' != 'true' And Exists('$(IntermediateOutputPath)generated\CyreneJson\.stamp')">
+          Condition="Exists('$(IntermediateOutputPath)generated\CyreneJson\.stamp')">
     <ItemGroup>
       <Compile Include="$(IntermediateOutputPath)generated\CyreneJson\*.g.cs" />
     </ItemGroup>

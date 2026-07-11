@@ -10,7 +10,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
   
     <PackageId>CyreneJson.BuildTask</PackageId>
-    <Version>1.2.1</Version>
+    <Version>1.2.2</Version>
     <Authors>CyreneLaboratory</Authors>
     <Company>CyreneLaboratory</Company>
     <Product>CyreneJson</Product>
