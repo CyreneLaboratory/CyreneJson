@@ -7,7 +7,8 @@
 
 ## 特性
 
-- **自动生成** - 构建时自动扫描标记类型，生成 `JsonSerializerContext`
+- **自动扫描** - 扫描 `JsonSerializer.Serialize/Deserialize` 调用点，自动推断需要注册的类型
+- **集中注册** - 通过 `[CyreneEntry(typeof(T))]` 在标记类上集中声明序列化根类型
 - **多态支持** - 自动发现派生类型并生成 `JsonPolymorphic` / `JsonDerivedType` 配置
 - **自定义集合** - 支持通过 `[CyreneHandler]` 注册自定义集合处理器
 - **AOT 兼容** - 生成的代码完全支持 Native AOT 编译
@@ -20,44 +21,72 @@ dotnet add package CyreneJson.BuildTask
 
 ## 快速开始
 
-### 基本用法
+### 自动调用点扫描
 
-使用 `[CyreneJson]` 标记需要序列化的类型：
+CyreneJson 会扫描所有调用 `JsonSerializer.Serialize<T>` / `Deserialize<T>` 的地方，自动将泛型参数 `T` 注册为序列化根类型，无需任何手动标注：
+
+```csharp
+// 直接调用 —— T 自动被发现，无需额外标注
+var json = JsonSerializer.Serialize(myData, options);
+var obj  = JsonSerializer.Deserialize<MyData>(json, options);
+```
+
+### 包装方法扫描
+
+如果你封装了一层序列化工具类，在方法上标注 `[CyreneEntry]`，调用该方法时传入的泛型类型同样会被自动发现：
 
 ```csharp
 using CyreneJson.Attributes;
 
-[CyreneJson]
-public class UserInfo
+public static class JsonHelper
 {
-    public string Name { get; set; }
-    public int Age { get; set; }
-    public List<string> Tags { get; set; }
+    [CyreneEntry]
+    public static T? Deserialize<T>(string json) =>
+        JsonSerializer.Deserialize<T>(json, Options);
+
+    [CyreneEntry]
+    public static string Serialize<T>(T value) =>
+        JsonSerializer.Serialize(value, Options);
 }
 ```
 
-构建时会自动生成 `CyreneJsonContext`，包含所有标记类型及其属性引用的类型。
+> 如果载荷不是第一个泛型参数，可以指定索引：`[CyreneEntry(payloadIndex: 1)]`
+
+### 集中注册根类型
+
+对于无法通过调用点静态推断的情况（如通过 `Type` 变量序列化的类型），在一个标记类上使用 `[CyreneEntry(typeof(T))]` 集中声明：
+
+```csharp
+using CyreneJson.Attributes;
+
+[CyreneEntry(typeof(GameData))]
+[CyreneEntry(typeof(ExcelResource))]
+public class CyreneEntries;
+```
+
+构建时会自动生成 `CyreneJsonContext`，包含所有注册类型及其属性引用的类型。
 
 ### 多态类型
 
-标记基类后，派生类型会被自动发现并生成多态配置：
+被发现的基类如果存在派生类型，会自动生成多态配置，无需额外标注：
 
 ```csharp
-[CyreneJson]
 public partial class Animal
 {
     public string Name { get; set; }
 }
 
-public class Cat : Animal
-{
-    public bool Indoor { get; set; }
-}
+public class Cat : Animal { public bool Indoor { get; set; } }
+public class Dog : Animal { public string Breed { get; set; } }
+```
 
-public class Dog : Animal
-{
-    public string Breed { get; set; }
-}
+生成结果：
+
+```csharp
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(Cat), "Cat")]
+[JsonDerivedType(typeof(Dog), "Dog")]
+partial class Animal { }
 ```
 
 ### 自定义集合处理器

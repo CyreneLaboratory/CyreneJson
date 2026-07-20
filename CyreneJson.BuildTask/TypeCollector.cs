@@ -114,7 +114,8 @@ public class TypeCollector
     public TypeCollector Collect()
     {
         CollectPendingTypes(Compilation.GlobalNamespace);
-        CollectEntryTypes();
+        CollectEntryTypesFromType();
+        CollectEntryTypesFromMethod();
         foreach (var value in EntryTypes.Values) CollectDerivedTypesFor(value, null);
         CollectProperties();
         CollectBaseTypes();
@@ -148,27 +149,63 @@ public class TypeCollector
 
     #region Collect
 
-    private void CollectEntryTypes()
+    private void AddEntryType(INamedTypeSymbol symbol)
+    {
+        var key = TypeSymbolHelper.GetFullyQualifiedName(symbol);
+        if (TypeSymbolHelper.ContainsOpenArgument(symbol))
+        {
+            Errors.Add($"Entry type '{key}' cannot be an open generic type.");
+            return;
+        }
+
+        EntryTypes[key] = symbol;
+        AllTypes.TryAdd(key, symbol);
+    }
+
+    private void CollectEntryTypesFromType()
     {
         foreach (var tree in Compilation.SyntaxTrees)
         {
             var model = Compilation.GetSemanticModel(tree);
-            foreach (var classDecl in tree.GetRoot().DescendantNodes())
+            foreach (var node in tree.GetRoot().DescendantNodes())
             {
-                if (classDecl is not ClassDeclarationSyntax syntax) continue;
-                var symbol = model.GetDeclaredSymbol(syntax);
-                if (symbol == null) continue;
-                if (!TypeSymbolHelper.HasJsonAttribute(symbol)) continue;
+                if (node is not ClassDeclarationSyntax syntax) continue;
+                var classSymbol = model.GetDeclaredSymbol(syntax);
+                if (classSymbol == null) continue;
 
-                var key = TypeSymbolHelper.GetFullyQualifiedName(symbol);
-                if (TypeSymbolHelper.ContainsOpenArgument(symbol))
+                foreach (var attr in classSymbol.GetAttributes())
                 {
-                    Errors.Add($"Entry type '{key}' cannot be an open generic type.");
-                    continue;
-                }
+                    if (attr.AttributeClass?.Name is not (CyreneEntryAttribute.ShortName or CyreneEntryAttribute.FullName)) continue;
+                    if (attr.ConstructorArguments.Length != 1) continue;
+                    if (attr.ConstructorArguments[0].Value is not INamedTypeSymbol entry) continue;
 
-                EntryTypes[key] = symbol;
-                AllTypes.TryAdd(key, symbol);
+                    AddEntryType(entry);
+                }
+            }
+        }
+    }
+
+    private void CollectEntryTypesFromMethod()
+    {
+        foreach (var tree in Compilation.SyntaxTrees)
+        {
+            var model = Compilation.GetSemanticModel(tree);
+            foreach (var node in tree.GetRoot().DescendantNodes())
+            {
+                if (node is not InvocationExpressionSyntax invocation) continue;
+
+                var info = model.GetSymbolInfo(invocation);
+                if ((info.Symbol ?? info.CandidateSymbols.FirstOrDefault()) is not IMethodSymbol symbol) continue;
+
+                var canonical = symbol.ReducedFrom ?? symbol;
+                var payloadIndex = TypeSymbolHelper.IsJsonSerializerMethod(canonical) ? 0 : TypeSymbolHelper.GetEntryPayloadIndex(canonical);
+                if (payloadIndex < 0) continue;
+                if (payloadIndex >= symbol.TypeArguments.Length) continue;
+
+                if (symbol.TypeArguments[payloadIndex] is not INamedTypeSymbol entry) continue;
+                if (!TypeSymbolHelper.IsSourceType(entry)) continue;
+
+                AddEntryType(entry);
             }
         }
     }
@@ -219,7 +256,7 @@ public class TypeCollector
 
             CollectDerivedTypesFor(current, toScan);
 
-            if (TypeSymbolHelper.HasJsonAttribute(current)) return;
+            if (EntryTypes.ContainsKey(key)) return; // Base type itself registered
             current = current.BaseType;
         }
     }

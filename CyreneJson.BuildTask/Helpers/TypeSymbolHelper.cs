@@ -5,15 +5,16 @@ namespace CyreneJson.BuildTask.Helpers;
 
 public static class TypeSymbolHelper
 {
-    public static bool HasJsonAttribute(INamedTypeSymbol symbol)
-    {
-        return symbol.GetAttributes().Any(a =>
-            a.AttributeClass?.Name is CyreneJsonAttribute.ShortName or CyreneJsonAttribute.FullName);
-    }
-
     public static bool IsHandlerAttribute(AttributeData attr)
     {
         return attr.AttributeClass?.Name is CyreneHandlerAttribute.ShortName or CyreneHandlerAttribute.FullName;
+    }
+
+    public static bool IsJsonSerializerMethod(IMethodSymbol method)
+    {
+        if (method.ContainingType?.ToDisplayString() != "System.Text.Json.JsonSerializer") return false;
+        return method.Name is "Serialize" or "SerializeAsync" or "SerializeToUtf8Bytes" or "SerializeToNode" or
+            "SerializeToElement" or "SerializeToDocument" or "Deserialize" or "DeserializeAsync";
     }
 
     public static bool IsPrimitiveOrWellKnown(ITypeSymbol type)
@@ -27,6 +28,17 @@ public static class TypeSymbolHelper
         if (type.TypeKind == TypeKind.Enum) return true;
         if (type.ToDisplayString() is "System.Guid" or "System.TimeSpan" or "System.DateTimeOffset" or "System.Uri") return true;
         return false;
+    }
+
+    public static int GetEntryPayloadIndex(IMethodSymbol method)
+    {
+        foreach (var attr in method.GetAttributes())
+        {
+            if (attr.AttributeClass?.Name is not (CyreneEntryAttribute.ShortName or CyreneEntryAttribute.FullName)) continue;
+            if (attr.ConstructorArguments.Length == 0) return 0;
+            if (attr.ConstructorArguments[0].Value is int index) return index;
+        }
+        return -1;
     }
 
     public static string GetFullyQualifiedName(ITypeSymbol type)
