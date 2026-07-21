@@ -22,6 +22,7 @@ public class ContextEmitter(TypeCollector collector)
         cb.AppendLine();
         cb.AppendLine("namespace CyreneJson;");
         cb.AppendLine();
+        if (Collector.GenOptions != null) cb.AppendLine(Collector.GenOptions);
         foreach (var key in Collector.AllTypes.Keys.Order())
             cb.AppendLine($"[global::System.Text.Json.Serialization.JsonSerializable(typeof({key}))]");
         cb.AppendLine("public partial class CyreneJsonContext : global::System.Text.Json.Serialization.JsonSerializerContext { }");

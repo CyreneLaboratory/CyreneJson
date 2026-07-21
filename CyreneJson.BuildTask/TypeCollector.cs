@@ -17,6 +17,7 @@ public class TypeCollector
     public Dictionary<string, INamedTypeSymbol> AllTypes { get; } = [];
     public Dictionary<string, INamedTypeSymbol> EntryTypes { get; } = [];
     public Dictionary<string, PolymorphicInfo> BaseTypes { get; } = [];
+    public string? GenOptions { get; private set; }
 
     public TypeCollector(string sourceFile, string refFile)
     {
@@ -119,7 +120,27 @@ public class TypeCollector
         foreach (var value in EntryTypes.Values) CollectDerivedTypesFor(value, null);
         CollectProperties();
         CollectBaseTypes();
+        CollectGenOptions();
         return this;
+    }
+
+    private void CollectGenOptions()
+    {
+        foreach (var tree in Compilation.SyntaxTrees)
+        {
+            var model = Compilation.GetSemanticModel(tree);
+            foreach (var node in tree.GetRoot().DescendantNodes())
+            {
+                if (node is not ClassDeclarationSyntax classDecl) continue;
+                if (model.GetDeclaredSymbol(classDecl) is not INamedTypeSymbol symbol) continue;
+
+                var attr = symbol.GetAttributes().FirstOrDefault(TypeSymbolHelper.IsSourceGenOptionsAttribute);
+                if (attr == null) continue;
+
+                GenOptions = TypeSymbolHelper.RenderAttribute(attr);
+                if (GenOptions != null) return;
+            }
+        }
     }
 
     #region Source

@@ -1,3 +1,4 @@
+using System.Globalization;
 using CyreneJson.Attributes;
 using Microsoft.CodeAnalysis;
 
@@ -8,6 +9,11 @@ public static class TypeSymbolHelper
     public static bool IsHandlerAttribute(AttributeData attr)
     {
         return attr.AttributeClass?.Name is CyreneHandlerAttribute.ShortName or CyreneHandlerAttribute.FullName;
+    }
+
+    public static bool IsSourceGenOptionsAttribute(AttributeData attr)
+    {
+        return attr.AttributeClass?.Name == "JsonSourceGenerationOptionsAttribute";
     }
 
     public static bool IsJsonSerializerMethod(IMethodSymbol method)
@@ -58,6 +64,7 @@ public static class TypeSymbolHelper
         return type.MetadataName;
     }
 
+    // Skip all source types, need filter generic type with user type arg before use this method
     public static bool IsSourceType(INamedTypeSymbol type)
     {
         return !type.IsImplicitlyDeclared && type.Locations.Any(l => l.IsInSource);
@@ -81,5 +88,69 @@ public static class TypeSymbolHelper
         if (type is IArrayTypeSymbol array) return ContainsOpenArgument(array.ElementType);
         if (type is not INamedTypeSymbol named) return false;
         return named.TypeArguments.Any(ContainsOpenArgument);
+    }
+
+    public static string? RenderAttribute(AttributeData attr)
+    {
+        var attrType = attr.AttributeClass;
+        if (attrType == null) return null;
+
+        var args = new List<string>();
+        foreach (var ctorArg in attr.ConstructorArguments)
+        {
+            var rendered = RenderConstant(ctorArg);
+            if (rendered == null) return null;
+            args.Add(rendered);
+        }
+        foreach (var named in attr.NamedArguments)
+        {
+            var rendered = RenderConstant(named.Value);
+            if (rendered == null) return null;
+            args.Add($"{named.Key} = {rendered}");
+        }
+
+        var name = attrType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        return args.Count == 0 ? $"[{name}]" : $"[{name}({string.Join(", ", args)})]";
+    }
+
+    private static string? RenderConstant(TypedConstant constant)
+    {
+        if (constant.IsNull) return "null";
+
+        return constant.Kind switch
+        {
+            TypedConstantKind.Enum => RenderEnum(constant),
+            TypedConstantKind.Type => constant.Value is ITypeSymbol type ? $"typeof({type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})" : null,
+            TypedConstantKind.Primitive => RenderPrimitive(constant.Value),
+            _ => null
+        };
+    }
+
+    private static string? RenderPrimitive(object? value)
+    {
+        return value switch
+        {
+            null => "null",
+            bool b => b ? "true" : "false",
+            string s => $"\"{s.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"",
+            char c => $"'{c}'",
+            float f => f.ToString("R", CultureInfo.InvariantCulture) + "f",
+            double d => d.ToString("R", CultureInfo.InvariantCulture) + "d",
+            decimal m => m.ToString(CultureInfo.InvariantCulture) + "m",
+            IFormattable n => n.ToString(null, CultureInfo.InvariantCulture),
+            _ => null
+        };
+    }
+
+    private static string? RenderEnum(TypedConstant constant)
+    {
+        if (constant.Type is not INamedTypeSymbol enumType) return null;
+        var fqn = enumType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+        foreach (var m in enumType.GetMembers().OfType<IFieldSymbol>())
+            if (m.HasConstantValue && Equals(m.ConstantValue, constant.Value))
+                return $"{fqn}.{m.Name}";
+
+        return $"({fqn})({Convert.ToInt64(constant.Value, CultureInfo.InvariantCulture)})";
     }
 }

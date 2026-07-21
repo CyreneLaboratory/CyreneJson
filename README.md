@@ -98,6 +98,28 @@ using CyreneJson.Attributes;
 public class MyCollectionHandler;
 ```
 
+### 序列化选项
+
+在任意类上标注 `[JsonSourceGenerationOptions(...)]`，该特性会被自动复制到生成的 `CyreneJsonContext` 上，无需手动定义上下文类：
+
+```csharp
+using System.Text.Json.Serialization;
+
+[JsonSourceGenerationOptions(UseStringEnumConverter = true)]
+public partial class MyJsonOptions;
+```
+
+生成结果：
+
+```csharp
+[JsonSourceGenerationOptions(UseStringEnumConverter = true)]
+[JsonSerializable(typeof(MyJsonOptions))]
+// ...
+public partial class CyreneJsonContext : JsonSerializerContext { }
+```
+
+> 只会采用扫描到的第一个 `[JsonSourceGenerationOptions]`。全项目只声明一处，建议只在此声明必要的影响源生成器的选项，其他由Option指定。
+
 ## 注意事项
 
 - **多态基类必须与生成代码位于同一程序集**：对存在派生类型的基类，生成器会发射 `partial class` 来补充 `JsonPolymorphic` / `JsonDerivedType` 配置。`partial` 无法跨程序集扩展，因此参与多态的基类（及其派生类型）必须定义在当前项目源码中，不能来自引用的其他程序集。
