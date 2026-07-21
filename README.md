@@ -98,6 +98,16 @@ using CyreneJson.Attributes;
 public class MyCollectionHandler;
 ```
 
+## 注意事项
+
+- **多态基类必须与生成代码位于同一程序集**：对存在派生类型的基类，生成器会发射 `partial class` 来补充 `JsonPolymorphic` / `JsonDerivedType` 配置。`partial` 无法跨程序集扩展，因此参与多态的基类（及其派生类型）必须定义在当前项目源码中，不能来自引用的其他程序集。
+
+- **仅分析当前项目的源码类型**：类型发现、属性扫描、派生类型收集都只针对当前编译中定义的类型。来自 BCL 或其他程序集的类型不会被当作用户类型展开——它们没有源码定义，既无法生成 `partial`，递归展开其成员还会把大量无关的框架类型拖入生成结果。
+
+- **泛型集合作为根类型**：像 `Deserialize<Dictionary<int, UserType>>` 这样以受支持集合为根的调用，集合外壳与其内部的用户类型 `UserType` 都会被正确收集。前提是该集合已通过内置处理器或 `[CyreneHandler]` 注册。
+
+- **基元 / 常见 BCL 根类型被忽略**：`Deserialize<int>`、`Serialize<Guid>` 等以基元或常见 BCL 类型为根的调用会被跳过，不会为其生成注册——`System.Text.Json` 已原生支持这些类型。
+
 ## 要求
 
 - .NET 8.0 或更高版本

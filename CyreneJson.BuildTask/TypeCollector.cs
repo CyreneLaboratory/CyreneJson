@@ -201,8 +201,14 @@ public class TypeCollector
                 var payloadIndex = TypeSymbolHelper.IsJsonSerializerMethod(canonical) ? 0 : TypeSymbolHelper.GetEntryPayloadIndex(canonical);
                 if (payloadIndex < 0) continue;
                 if (payloadIndex >= symbol.TypeArguments.Length) continue;
-
                 if (symbol.TypeArguments[payloadIndex] is not INamedTypeSymbol entry) continue;
+
+                // Supported generic
+                if (entry.IsGenericType && Collections.Any(c => c.Key == TypeSymbolHelper.GetTypeDefinitionKey(entry) && c.TypeArgs == entry.TypeArguments.Length))
+                {
+                    CollectPropType([], entry);
+                    continue;
+                }
                 if (!TypeSymbolHelper.IsSourceType(entry)) continue;
 
                 AddEntryType(entry);
@@ -219,6 +225,7 @@ public class TypeCollector
             var type = toScan.Dequeue();
             var key = TypeSymbolHelper.GetFullyQualifiedName(type);
             if (!visited.Add(key)) continue;
+            if (!TypeSymbolHelper.IsSourceType(type)) continue;
 
             foreach (var member in type.GetMembers())
             {
@@ -323,6 +330,7 @@ public class TypeCollector
         foreach (var (key, type) in AllTypes)
         {
             if (type.IsSealed || type.TypeKind != TypeKind.Class) continue;
+            if (!TypeSymbolHelper.IsSourceType(type)) continue;
 
             var derived = new List<INamedTypeSymbol>();
             foreach (var candidate in AllTypes.Values)
